@@ -1,0 +1,97 @@
+# Podsumowanie analizy DSP: Klon SansAmpa (JUCE / C++), sekcje DRIVE i CRUNCH
+
+## Kontekst i cel
+Klon referencyjnej wtyczki PSA-1 (AP SansAmp Rack) metodą black-box. Zamiast zgadywać wartości ze schematu analogowego, mierzymy rzeczywiste zachowanie referencji w REAPERze i dopasowujemy modele w Pythonie. Schemat DimebuGG okazał się błędny dla DRIVE i CRUNCH (zgadywanie obalone pomiarem), więc w `DriveStage.h` zastąpiliśmy go modelem z pomiarów.
+
+## Metodologia (zmieniona względem początku)
+- **Szum zamiast generatora:** stały seed (1234), plik FLOAT, crest ograniczony do 3,5σ, poziom zapisany w pliku (nie w nastawie generatora). Powód: EMO-Generator losował szum za każdym razem, więc H1 był niemożliwy (koherencja 0,01).
+- **Estymator H1** (Sxy/Sxx) z koherencją jako maską wiarygodności i automatycznym wyrównaniem latencji. Zastąpił stare sqrt(PSD_wet/PSD_dry), które mierzyło też harmoniczne.
+- **Poziomy:** -60 dBFS dla CRUNCH (drive 0), -90 dBFS dla interakcji (przy 62 dB wzmocnienia nic nie ścina), -40 tylko do pierwszych pomiarów.
+- **Kontrola:** `Unit OFF` vs `dry` = 0,00 dB, więc sama otoczka wtyczki jest przezroczysta, a cały kształt toru pochodzi z jednostki PSA-1.
+
+## Wyniki
+
+**DRIVE (zamknięty liniowo)**
+- `gainDb = 32 × gałka`: 16,0 dB przy 50%, 32,0 dB przy 100%, płasko 50 Hz–15 kHz, bez filtra.
+- Niezależny od CRUNCH (te same 16,0/32,0 dB przy cmin, cmid i cmax), więc brak interakcji.
+- Wcześniejszy "sufit" (29,7 dB zamiast 32) to było ścinanie przy -40 dBFS, a nie mapa gałki.
+
+**CRUNCH (zamknięty z dokładnością ≤ 0,35 dB, analogowo)**
+- Plateau rośnie ok. 30 dB × gałka (7,5 / 15 / 22,5 / ~30 dB; maksimum razem z DRIVE to 62 dB).
+- Model: `H(s) = (1 + s/ωz) / ((1 + s/ωp)(1 + s/ωh)²)`, czyli zero ~70–87 Hz, biegun `fp` rosnący z gałką (112 Hz → 6,9 kHz) i podwójny biegun górny `fh` (Q ≈ 0,5).
+- Tabela 9 węzłów (0, 12,5, ..., 100%) z interpolacją w log(f) jest już w `DriveStage.h`.
+- Interpolacja sprawdzona na 12,5 / 37,5 / 62,5 / 87,5%: do 4 kHz błąd ≤ 0,25 dB.
+
+## Otwarte problemy
+1. **Dyskretyzacja:** bilinear bez prewarpu daje przy 15 kHz błąd 3,5–6 dB (48 kHz) i 4,6–7,8 dB (44,1 kHz), ok. 1 dB przy 96 kHz. Plan: 2x oversampling plus dopasowanie cyfrowe.
+2. **Test klona:** **klon jeszcze nie wyrenderowany**, więc kod C++ nie był jeszcze zweryfikowany względem referencji.
+3. **Baseline** (stała część toru: korektor Low/Punch/Buzz/High + stromy filtr, -4,5 dB na 1 kHz, -70 dB na 15 kHz, do 54 dB/okt): niezmodelowany. Pomiar przy -10 dBFS, gęsta siatka 4–20 kHz, test przy 44,1/96 kHz.
+4. **Nieliniowość:** `kClip = 0,17` jest tylko szacunkiem z szumu. Potrzebny sinus 1 kHz z przemiataniem poziomu (-60…0 dBFS), harmoniczne 2. i 3., kilka ustawień gałek.
+5. **Drobne:** węzeł 0% to założenie (płasko), zmiana CRUNCH przelicza współczynniki skokowo (brak wygładzania), `fp` i `fh` przy 100% są zdegenerowane (ważna ich suma, nie podział).
+
+## Aktualny stan kodu C++
+
+Kod został uporządkowany w małe moduły DSP, bez zmiany kolejności toru ani parametrów:
+
+```text
+GAIN -> BUZZ -> PUNCH -> DRIVE/CRUNCH -> TONE -> OUTPUT
+```
+
+- `DiodeModel.h`: wspólny model sprzężenia zwrotnego z diodami.
+- `GainStage.h`: stopień GAIN, jego filtr LPF i stan.
+- `BuzzStage.h`: sieć T BUZZ, filtr biquad, LPF i stan.
+- `PunchStage.h`: sieć PUNCH, filtr IIR 3. rzędu i model diod.
+- `DriveStage.h`: zmierzony model DRIVE/CRUNCH i tymczasowy soft-clip.
+- `ToneStage.h`: istniejący model HIGH/LOW.
+- `PluginProcessor.cpp`: parametry JUCE, smoothing i kolejność wywołań bloków.
+
+Refaktor był celowo ograniczony. Nie wydzielano jeszcze krótkiego końcowego post-processingu (opcjonalny LPF i DC blocker), żeby nie komplikować kodu przed pierwszą kompilacją i renderem. Diagnostyka zmienionych plików nie zgłasza błędów, ale klon nadal nie został zweryfikowany odsłuchem ani pomiarem względem referencji.
+
+## Pierwsze porównanie klona z referencją
+
+Klon został wyrenderowany i porównany przez `scripts/cmp_clone.py` z użyciem H1 oraz różnic względem własnego `cmin/min`.
+
+- **DRIVE (`-90 dBFS`)**: `+16,00 dB` przy MID i `+32,00 dB` przy MAX; różnica klon–referencja wynosi maksymalnie około `0,001 dB`.
+- **CRUNCH (`-60 dBFS`, DRIVE minimum)**: błąd do 4 kHz wynosi `0,018–0,073 dB RMS`, maksymalnie `0,109 dB`; spełnia to cel `<= 0,35 dB`.
+- **CRUNCH powyżej 4 kHz**: różnica rośnie do około `3,7–5,3 dB` przy 15 kHz, zgodnie z oczekiwanym problemem dyskretyzacji bez oversamplingu.
+- **Baseline absolutny**: odpowiedź `cmin/min` klona jest wyraźnie inna od referencji (około `12–28 dB` niżej w zakresie 50 Hz–4 kHz, a znacznie mniej tłumiona powyżej 8 kHz). Nie unieważnia to testu względnego DRIVE/CRUNCH, ale oznacza, że stały tor `GAIN/BUZZ/PUNCH/TONE/OUTPUT` wymaga osobnego dopasowania.
+
+Wniosek: model `DriveStage` i jego mapowanie DRIVE/CRUNCH są potwierdzone w całym klonie. Następny osobny temat to baseline, a dopiero później oversampling dla poprawy górnego pasma CRUNCH.
+
+## Następne kroki
+1. Zmierzyć i dopasować baseline absolutny przy stałych ustawieniach GAIN/BUZZ/PUNCH/TONE.
+2. Zachować osobny test względny `cmp_clone.py` jako regresję DRIVE/CRUNCH.
+3. Po baseline: dodać oversampling i dopasowanie cyfrowe dla błędu górnego pasma CRUNCH.
+4. Następnie wykonać pomiary nieliniowości i zastąpić tymczasowy soft-clip.
+
+## Struktura folderów i pliki
+
+```
+SansAmp/
+  noise/    noise_-40/-60/-90.wav
+  ref/drive/ pomiary referencji PSA-1
+  clone/    (pusty) tu trafią renderowane z klona
+  old/      stare, niepewne pliki
+  plots/    wykresy PNG
+  scripts/  skrypty Python i Lua
+```
+
+**Dane**
+- `noise_-XX.wav`: szum wejściowy, stały seed, RMS = XX dBFS. Zawsze ten sam plik dla dry i wet.
+- `drive_dry_-XX.wav`: szum bez wtyczki, punkt odniesienia dla H1.
+- `drive_<crunch>_<drive>_-XX.wav`: render referencji przy danych gałkach (`cmin`/`c125`/.../`cmax`, `min`/`mid`/`max`).
+- `drive_log.txt`: log ustawień z ostatniego przebiegu Lua.
+- `clone_*.wav` (do wygenerowania): to samo z klona.
+
+**Skrypty**
+- `generate_white_noise.py`: generuje plik szumu (seed, clip, poziom RMS, FLOAT).
+- `render_drive.lua`: REAPER, ustawia gałki w pętli i renderuje pliki referencji (dry + wet). Wymaga wyboru wtyczki (`REF_MATCH`), katalogu i prefiksu.
+- `render_clone_drive.lua`: REAPER, wyszukuje klona po nazwie zawierającej `sansamp` i renderuje analogiczne serie do `clone/`.
+- `render_clone_modules.lua`: REAPER, wyszukuje klona po nazwie i renderuje osobne serie `BUZZ`, `PUNCH`, `HIGH` albo `LOW` przy `-60 dBFS`; badany moduł zmienia się od MIN przez MID do MAX, a pozostałe parametry są neutralne.
+- `fit_drive.py`: główny analizator. H1 + koherencja, tabela różnic względem `cmin/min`, fity półki (Fit 1–3), sprawdzenie Unit OFF, residuum interakcji. Zawiera też funkcje `h1_bands`, `shelf2o_db`, importowane przez inne skrypty.
+- `fit_interp.py`: sprawdza interpolację parametrów na pozycjach pośrednich (c125...c875) oraz błąd dyskretyzacji bilinear dla 44,1/48/96 kHz.
+- `fit_all.py`: dopasowuje wspólny model CRUNCH do wszystkich 8 krzywych (dane wpisane na stałe) i wypisuje tabelę 9 węzłów do C++. Nie czyta plików.
+- `cmp_clone.py`: wykorzystuje `h1_bands()` z `fit_drive.py`; porównuje CRUNCH przy `-60 dBFS` i DRIVE przy `-90 dBFS`, raportując RMS/max do 4 kHz i w całym badanym paśmie oraz PASS/FAIL względem progów. Jest to test względny zmian DRIVE/CRUNCH, nie pełnego absolutnego baseline.
+- `DiodeModel.h`, `GainStage.h`, `BuzzStage.h`, `PunchStage.h`: moduły kolejnych stopni toru analogowego.
+- `DriveStage.h`: kod C++ (DRIVE + CRUNCH + tymczasowy soft-clip), zastępuje stary model ze schematu.
+- `fit_buzz.py`, `fit_punch.py`, `fit_tone.py`, `fit_taper.py`, `render_sweep.*`: osobne serie (Buzz, Punch, Low/High, taper) z wcześniejszych etapów; następny krok to dopisanie do nich trybu absolutnego porównania z renderami `clone_*`.

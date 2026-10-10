@@ -1,12 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
 <JUCERPROJECT id="YhQOGK" name="SansAmpClone" projectType="audioplug" useAppConfig="0"
-              addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1" headerPath="/Users/igi/SansAmp/RTNeural&#10;Users/igi/SansAmp/RTNeural/modules/json/single_include"
+              addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1" headerPath="&#10;"
               pluginManufacturerCode="Manu" pluginCode="Yhqo" pluginManufacturer="yourcompany">
   <MAINGROUP id="U2IWZM" name="SansAmpClone">
     <GROUP id="{41F185C9-A296-AD54-4F8F-38E14637DC1F}" name="Source">
-      <FILE id="feVcrt" name="sansamp_weights.json" compile="0" resource="1"
-            file="../../sansamp_weights.json"/>
       <FILE id="ftX8ZN" name="PluginProcessor.cpp" compile="1" resource="0"
             file="Source/PluginProcessor.cpp"/>
       <FILE id="JoXHEP" name="PluginProcessor.h" compile="0" resource="0"

@@ -1,0 +1,25 @@
+FIXED Link Parameters = 1.000
+FIXED Channel 2 Unit Selection = 0.000
+FIXED Channel 1 Unit Selection = 0.000
+FIXED Rack In = 0.500
+FIXED Rack Out = 0.500
+FIXED LR/MS Processing = 0.000
+FIXED PSA-1 1: Buzz = 0.500
+FIXED PSA-1 1: Punch = 0.500
+FIXED PSA-1 1: Low = 0.500
+FIXED PSA-1 1: Pre-Amp = 0.488
+FIXED PSA-1 1: High = 0.500
+FIXED PSA-1 1: Level = 1.000
+FIXED PSA-1 1: Phase = 0.000
+FIXED PSA-1 1: Unit ON/Unit OFF = 1.000
+FIXED PSA-1 1: Mix = 1.000
+FIXED PSA-1 2: Buzz = 0.500
+FIXED PSA-1 2: Punch = 0.500
+FIXED PSA-1 2: Low = 0.500
+FIXED PSA-1 2: Pre-Amp = 0.488
+FIXED PSA-1 2: High = 0.500
+FIXED PSA-1 2: Level = 1.000
+FIXED PSA-1 2: Phase = 0.000
+FIXED PSA-1 2: Unit ON/Unit OFF = 1.000
+FIXED PSA-1 2: Mix = 1.000
+drive_cmin_min_-60: crunch=0.000 drive=0.000
